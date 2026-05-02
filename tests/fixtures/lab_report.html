@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<body>
+<section id="unexplained-errors">
+<h2>unexplained-errors</h2>
+<table>
+<tr>
+<th>Unexplained errors</th><th>algorithm</th><th>domain</th><th>problem</th><th>error</th><th>planner_wall_clock_time</th><th>raw_memory</th><th>node</th><th>run_dir</th>
+</tr>
+<tr>
+<td rowspan="2">['run.err:<br />Traceback (most recent call last):<br />MemoryError<br />']</td>
+<td>algo-a</td><td>blocksworld</td><td>p01.pddl</td><td>exitcode-1</td><td>1.0</td><td>?</td><td>node-a</td><td>runs/001</td>
+</tr>
+<tr>
+<td>algo-b</td><td>blocksworld</td><td>p02.pddl</td><td>exitcode-1</td><td>2.0</td><td>?</td><td>node-b</td><td>runs/002</td>
+</tr>
+</table>
+</section>
+<section id="summary">
+<h2>summary</h2>
+<table>
+<tr><th>Summary</th><th>algo-a</th><th>algo-b</th></tr>
+<tr><td><a href="#coverage">coverage - Sum</a></td><td>1</td><td>2</td></tr>
+<tr><td><a href="#search_time">search_time - Geometric mean</a></td><td>1.5</td><td>0.5</td></tr>
+</table>
+</section>
+<section id="coverage">
+<h2>coverage</h2>
+<table>
+<tr><th>coverage</th><th>algo-a</th><th>algo-b</th></tr>
+<tr><td><a href="#coverage-blocksworld">blocksworld</a> (2)</td><td>1</td><td>2</td></tr>
+<tr><td>Sum (2)</td><td>1</td><td>2</td></tr>
+</table>
+</section>
+<section id="coverage-blocksworld">
+<h3>blocksworld</h3>
+<table>
+<tr><th>coverage</th><th>algo-a</th><th>algo-b</th></tr>
+<tr><td>p01.pddl</td><td>1</td><td>1</td></tr>
+<tr><td>p02.pddl</td><td>0</td><td>1</td></tr>
+</table>
+</section>
+<section id="search_time">
+<h2>search_time</h2>
+<table>
+<tr><th>search_time</th><th>algo-a</th><th>algo-b</th></tr>
+<tr><td><a href="#search_time-blocksworld">blocksworld</a> (2)</td><td>1.5</td><td>0.5</td></tr>
+<tr><td>Geometric mean (2)</td><td>1.5</td><td>0.5</td></tr>
+</table>
+</section>
+<section id="search_time-blocksworld">
+<h3>blocksworld</h3>
+<table>
+<tr><th>search_time</th><th>algo-a</th><th>algo-b</th></tr>
+<tr><td>p01.pddl</td><td>1.0</td><td>0.5</td></tr>
+<tr><td>p02.pddl</td><td>2.0</td><td>0.5</td></tr>
+</table>
+</section>
+</body>
+</html>
