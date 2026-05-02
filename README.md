@@ -124,37 +124,17 @@ output. `NO_COLOR` is respected.
 
 ## Options
 
-```text
-report
-    Path to a Lab HTML report.
-
--a, --attribute NAME [NAME ...]
-    Print one or more attribute tables. Values can be space-separated or
-    comma-separated.
-
--d, --domain NAME [NAME ...]
-    Also print per-domain tables for each selected attribute. Requires
-    --attribute.
-
--e, --errors
-    Print unexplained errors before the selected report tables.
-
---summary
-    Print the summary table at the top, even when attributes are selected.
-
---list-attributes
-    List available top-level attribute tables and exit.
-
---highlight {max,min}
-    Bold and underline the row-wise maximum or minimum numeric values.
-    Ties are highlighted together.
-
--p, --paging
-    Send output through the system pager.
-
---color {auto,always,never}
-    Control ANSI colors. The default is auto.
-```
+| Option | Description |
+| --- | --- |
+| `report` | Path to a Lab HTML report. |
+| `-a`, `--attribute NAME [NAME ...]` | Print one or more attribute tables. Values can be space-separated or comma-separated. |
+| `-d`, `--domain NAME [NAME ...]` | Also print per-domain tables for each selected attribute. Requires `--attribute`. |
+| `-e`, `--errors` | Print unexplained errors before the selected report tables. |
+| `--summary` | Print the summary table at the top, even when attributes are selected. |
+| `--list-attributes` | List available top-level attribute tables and exit. |
+| `--highlight {max,min}` | Bold and underline the row-wise maximum or minimum numeric values. Ties are highlighted together. |
+| `-p`, `--paging` | Send output through the system pager. |
+| `--color {auto,always,never}` | Control ANSI colors. The default is `auto`. |
 
 ## Development
 
