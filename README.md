@@ -13,6 +13,7 @@ results over SSH, in CI logs, or without opening a browser.
 - Print selected attribute tables such as `coverage`, `search_time`, or
   `total_time`.
 - Print per-domain tables for selected attributes.
+- Filter tables to selected configurations by name or by 1-based index.
 - List all available report attributes.
 - Show unexplained errors as a compact terminal table.
 - Page long output through the system pager.
@@ -87,6 +88,14 @@ Print per-domain tables for selected attributes:
 labview report.html --attribute coverage --domain blocksworld ferry
 ```
 
+Filter configurations by name or by their 1-based table position:
+
+```bash
+labview report.html --attribute coverage --configuration lama
+labview report.html --attribute coverage --configuration 1 3
+labview report.html --attribute coverage --configuration lama,2
+```
+
 Always print the summary first:
 
 ```bash
@@ -129,6 +138,7 @@ output. `NO_COLOR` is respected.
 | `report` | Path to a Lab HTML report. |
 | `-a`, `--attribute NAME [NAME ...]` | Print one or more attribute tables. Values can be space-separated or comma-separated. |
 | `-d`, `--domain NAME [NAME ...]` | Also print per-domain tables for each selected attribute. Requires `--attribute`. |
+| `-c`, `--configuration NAME_OR_INDEX [NAME_OR_INDEX ...]` | Keep only the selected configurations. Values can be configuration names or 1-based configuration indexes, and can be space-separated or comma-separated. |
 | `-e`, `--errors` | Print unexplained errors before the selected report tables. |
 | `--summary` | Print the summary table at the top, even when attributes are selected. |
 | `--list-attributes` | List available top-level attribute tables and exit. |
