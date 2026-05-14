@@ -24,7 +24,7 @@ def render_table(table: Table, *, width: int, color: bool = False, highlight: st
     if table.section_id == "unexplained-errors":
         return _render_errors(table, width=width, color=color)
     if table.empty:
-        return f"{_style(table.title, _CYAN_BOLD, color)}\n(no rows)"
+        return f"{_heading(table.title, _CYAN_BOLD, color)}\n(no rows)"
 
     rows = [list(row) for row in table.rows]
     rows, legend = _compact_algorithm_headers(rows, width)
@@ -36,7 +36,7 @@ def render_table(table: Table, *, width: int, color: bool = False, highlight: st
     ]
     rule = _rule(col_widths)
 
-    lines = [_style(table.title, _CYAN_BOLD, color), _style(rule, _DIM, color)]
+    lines = [_heading(table.title, _CYAN_BOLD, color), _style(rule, _DIM, color)]
     for index, row_lines in enumerate(rendered_rows):
         lines.extend(row_lines)
         if index == 0:
@@ -168,7 +168,7 @@ def _parse_number(value: str) -> float | None:
 
 def _render_errors(table: Table, *, width: int, color: bool = False) -> str:
     if len(table.rows) <= 1:
-        return f"{_style(table.title, _RED_BOLD, color)}\n(no unexplained errors)"
+        return f"{_heading(table.title, _RED_BOLD, color)}\n(no unexplained errors)"
 
     headers = list(table.rows[0])
     wanted = ["algorithm", "domain", "problem", "error", "planner_wall_clock_time", "node", "run_dir"]
@@ -200,7 +200,10 @@ def _render_errors(table: Table, *, width: int, color: bool = False) -> str:
     ]
     rule = _rule(col_widths)
 
-    lines = [_style(f"{table.title} ({len(table.rows) - 1})", _RED_BOLD, color), _style(rule, _DIM, color)]
+    lines = [
+        _heading(f"{table.title} ({len(table.rows) - 1})", _RED_BOLD, color),
+        _style(rule, _DIM, color),
+    ]
     for index, row_lines in enumerate(rendered_rows):
         lines.extend(row_lines)
         if index == 0:
@@ -253,6 +256,10 @@ def _style(value: str, code: str, enabled: bool) -> str:
     if not enabled or not code:
         return value
     return f"{code}{value}{_RESET}"
+
+
+def _heading(value: str, code: str, color: bool) -> str:
+    return _style(f"# {value}", code, color)
 
 
 def _algorithm_color(column_index: int) -> str:

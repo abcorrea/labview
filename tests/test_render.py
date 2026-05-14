@@ -5,6 +5,19 @@ from labview.render import render_table
 
 
 class RenderTests(unittest.TestCase):
+    def test_table_title_is_markdown_heading(self) -> None:
+        table = Table(
+            "score",
+            (
+                ("score", "algo-a"),
+                ("task-1", "1"),
+            ),
+        )
+
+        rendered = render_table(table, width=120)
+
+        self.assertTrue(rendered.startswith("# score\n"))
+
     def test_highlight_marks_row_maxima(self) -> None:
         table = Table(
             "score",
