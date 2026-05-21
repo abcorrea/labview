@@ -565,5 +565,147 @@ class TuiMergeTests(unittest.TestCase):
         self.assertEqual(state["merges"], [])
 
 
+class TuiPanelTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.report = LabReport.from_file(FIXTURE)
+
+    def test_parse_tui_command_panel_new_kill(self) -> None:
+        state = {
+            "panels": [
+                {
+                    "name": "summary",
+                    "attributes": [],
+                    "domains": [],
+                    "configurations": [],
+                    "errors": False,
+                    "summary": True,
+                    "highlight": None,
+                    "view_mode": "table",
+                    "merges": [],
+                    "scroll_y": 0,
+                    "scroll_x": 0,
+                    "last_rendered_text": "",
+                }
+            ],
+            "active_panel_idx": 0,
+            "quit": False,
+        }
+
+        # 1. Create a new panel using 'new'
+        success, err = parse_tui_command("new", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(len(state["panels"]), 2)
+        self.assertEqual(state["active_panel_idx"], 1)
+        self.assertEqual(state["panels"][1]["name"], "panel 2")
+
+        # 2. Create another panel with custom name
+        success, err = parse_tui_command("new custom panel name", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(len(state["panels"]), 3)
+        self.assertEqual(state["active_panel_idx"], 2)
+        self.assertEqual(state["panels"][2]["name"], "custom panel name")
+
+        # 3. Switch panel using 'panel <num>'
+        success, err = parse_tui_command("panel 1", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(state["active_panel_idx"], 0)
+
+        # 4. Switch panel using direct number
+        success, err = parse_tui_command("2", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(state["active_panel_idx"], 1)
+
+        # 5. Invalid panel number
+        success, err = parse_tui_command("panel 5", state, self.report)
+        self.assertFalse(success)
+        self.assertEqual(err, "Panel index out of range: 5")
+        self.assertEqual(state["active_panel_idx"], 1)
+
+        # 6. Kill active panel (index 1)
+        success, err = parse_tui_command("kill 2", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(len(state["panels"]), 2)
+        self.assertEqual(state["active_panel_idx"], 1)  # adjusted idx
+
+        # 7. Kill another panel
+        success, err = parse_tui_command("kill 2", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(len(state["panels"]), 1)
+        self.assertEqual(state["active_panel_idx"], 0)
+
+        # 8. Try to kill the last panel
+        success, err = parse_tui_command("kill 1", state, self.report)
+        self.assertFalse(success)
+        self.assertEqual(err, "Cannot close the last remaining panel")
+        self.assertEqual(len(state["panels"]), 1)
+
+        # 9. Rename panel
+        # First add a second panel to rename
+        success, err = parse_tui_command("new", state, self.report)
+        self.assertTrue(success)
+        self.assertEqual(state["panels"][1]["name"], "panel 2")
+
+        # Rename without specifying name (fails)
+        success, err = parse_tui_command("rename", state, self.report)
+        self.assertFalse(success)
+        self.assertEqual(err, "Usage: /rename <new_name>")
+        self.assertEqual(state["panels"][1]["name"], "panel 2")
+
+        # Rename with name
+        success, err = parse_tui_command("rename custom name", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(state["panels"][1]["name"], "custom name")
+
+        # Rename on flat mode (fails)
+        flat_state = {
+            "view_mode": "table",
+            "quit": False,
+        }
+        success, err = parse_tui_command("rename new_name", flat_state, self.report)
+        self.assertFalse(success)
+        self.assertEqual(err, "Rename is only supported in multi-panel mode")
+
+    def test_autocomplete_panel_commands(self) -> None:
+        # Autocomplete panel / kill / rename commands
+        win = MockWindow(["p", 9, 10])
+        res = get_command_input(win, 0, 80, [], [], [])
+        self.assertEqual(res, "panel")
+
+        win = MockWindow(["k", 9, 10])
+        res = get_command_input(win, 0, 80, [], [], [])
+        self.assertEqual(res, "kill")
+
+        win = MockWindow(["n", 9, 10])
+        res = get_command_input(win, 0, 80, [], [], [])
+        self.assertEqual(res, "new")
+
+        win = MockWindow(["r", 9, 10])
+        res = get_command_input(win, 0, 80, [], [], [])
+        self.assertEqual(res, "rename")
+
+        # Autocomplete panel IDs
+        panel_ids = ["1", "2", "3"]
+        win = MockWindow(["p", "a", "n", "e", "l", " ", 9, 10])
+        res = get_command_input(win, 0, 80, [], [], [], panel_ids=panel_ids)
+        self.assertEqual(res, "panel 1")
+
+        win = MockWindow(["p", "a", "n", "e", "l", " ", 9, 9, 10])
+        res = get_command_input(win, 0, 80, [], [], [], panel_ids=panel_ids)
+        self.assertEqual(res, "panel 2")
+
+        # Autocomplete kill IDs
+        win = MockWindow(["k", "i", "l", "l", " ", 9, 9, 9, 10])
+        res = get_command_input(win, 0, 80, [], [], [], panel_ids=panel_ids)
+        self.assertEqual(res, "kill 3")
+
+
 if __name__ == "__main__":
     unittest.main()

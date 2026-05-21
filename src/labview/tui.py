@@ -48,18 +48,30 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
         curses.init_pair(7, curses.COLOR_BLACK, curses.COLOR_CYAN)
         # Error message color pair (white text on red background)
         curses.init_pair(8, curses.COLOR_WHITE, curses.COLOR_RED)
+        # Panel active and inactive color pairs (black text on green background, white on blue)
+        curses.init_pair(9, curses.COLOR_BLACK, curses.COLOR_GREEN)
+        curses.init_pair(10, curses.COLOR_WHITE, curses.COLOR_BLUE)
 
     from .cli import _split_values
     state = {
-        "attributes": _split_values(args.attribute),
-        "domains": _split_values(args.domain),
-        "configurations": _split_values(args.configuration),
-        "errors": args.errors,
-        "summary": args.summary,
-        "highlight": args.highlight,
-        "view_mode": "table",  # "table", "help", "list"
+        "panels": [
+            {
+                "name": "summary",
+                "attributes": _split_values(args.attribute),
+                "domains": _split_values(args.domain),
+                "configurations": _split_values(args.configuration),
+                "errors": args.errors,
+                "summary": args.summary,
+                "highlight": args.highlight,
+                "view_mode": "table",  # "table", "help", "list"
+                "merges": [],
+                "scroll_y": 0,
+                "scroll_x": 0,
+                "last_rendered_text": "",
+            }
+        ],
+        "active_panel_idx": 0,
         "quit": False,
-        "merges": [],
     }
 
     # Extract domains, attributes, and configurations lists for tab completion
@@ -67,10 +79,7 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
     attributes_list = sorted(list(report.attribute_names()))
     configurations_list = get_report_configurations(report)
 
-    scroll_y = 0
-    scroll_x = 0
-
-    last_rendered_text = ""
+    last_active_panel_idx = 0
     pad: curses.window | None = None
     pad_lines = 0
     pad_cols = 0
@@ -80,7 +89,7 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
 
     while not state["quit"]:
         height, width = stdscr.getmaxyx()
-        if height < 3 or width < 10:
+        if height < 4 or width < 10:
             stdscr.clear()
             try:
                 stdscr.addstr(0, 0, "Terminal too small!")
@@ -92,41 +101,46 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
                 break
             continue
 
-        # Viewport layout
-        viewport_height = height - 2
+        active_panel = state["panels"][state["active_panel_idx"]]
+
+        # Viewport layout (height - 3: Row 0 is panels, Row 1 is status, viewport starts at Row 2, Row height-1 is prompt)
+        viewport_height = height - 3
         viewport_width = width
 
         content_text = ""
-        if state["view_mode"] == "help":
+        if active_panel["view_mode"] == "help":
             content_text = _generate_help_text()
-        elif state["view_mode"] == "list":
+        elif active_panel["view_mode"] == "list":
             content_text = _generate_list_text(report)
         else:
             from .cli import _filter_configurations, _select_tables
             try:
                 tables = _select_tables(
                     report,
-                    attributes=state["attributes"],
-                    domains=state["domains"],
-                    include_errors=state["errors"],
-                    include_summary=state["summary"],
+                    attributes=active_panel["attributes"],
+                    domains=active_panel["domains"],
+                    include_errors=active_panel["errors"],
+                    include_summary=active_panel["summary"],
                 )
-                if state["configurations"]:
-                    tables = _filter_configurations(tables, state["configurations"])
-                if state.get("merges"):
-                    tables = [_apply_merges_to_table(t, state["merges"]) for t in tables]
+                if active_panel["configurations"]:
+                    tables = _filter_configurations(tables, active_panel["configurations"])
+                if active_panel.get("merges"):
+                    tables = [_apply_merges_to_table(t, active_panel["merges"]) for t in tables]
                 content_text = render_sections(
                     tables,
                     color=True,
-                    highlight=state["highlight"],
+                    highlight=active_panel["highlight"],
                     width=viewport_width,
                 )
             except Exception as e:
                 content_text = f"\033[1;31mError rendering table:\n{e}\033[0m"
 
         # Update curses pad if text or layout changed
-        if content_text != last_rendered_text or pad is None:
-            last_rendered_text = content_text
+        panel_changed = (state["active_panel_idx"] != last_active_panel_idx)
+        last_active_panel_idx = state["active_panel_idx"]
+
+        if content_text != active_panel.get("last_rendered_text") or pad is None or panel_changed:
+            active_panel["last_rendered_text"] = content_text
             # Force complete screen redraw to remove leftovers from previous layout
             stdscr.clear()
             lines = content_text.splitlines()
@@ -150,27 +164,58 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
                     except curses.error:
                         pass
 
-        # Draw status bar
+        # Clear viewport rows of stdscr to prevent leftover text from shorter layouts
+        for y in range(1, height - 2):
+            try:
+                stdscr.move(y, 0)
+                stdscr.clrtoeol()
+            except curses.error:
+                pass
+
+        # Draw panel tabs on Row height - 2 (right above dialogue box at height - 1)
+        stdscr.move(height - 2, 0)
+        stdscr.clrtoeol()
+        curr_x = 0
+        for idx, panel in enumerate(state["panels"]):
+            is_active = (idx == state["active_panel_idx"])
+            tab_text = f" {idx + 1}: {panel['name']} "
+            if curses.has_colors():
+                tab_attr = curses.color_pair(9) if is_active else curses.color_pair(10)
+            else:
+                tab_attr = curses.A_REVERSE if is_active else curses.A_NORMAL
+            try:
+                stdscr.addstr(height - 2, curr_x, tab_text, tab_attr)
+            except curses.error:
+                pass
+            curr_x += len(tab_text)
+            if idx < len(state["panels"]) - 1:
+                try:
+                    stdscr.addstr(height - 2, curr_x, " ", curses.A_NORMAL)
+                except curses.error:
+                    pass
+                curr_x += 1
+
+        # Draw status bar on Row 1
         status_parts = [f"REPORT: {args.report}"]
 
-        if state["attributes"]:
-            status_parts.append(f"Attrs: {','.join(state['attributes'])}")
+        if active_panel["attributes"]:
+            status_parts.append(f"Attrs: {','.join(active_panel['attributes'])}")
         else:
             status_parts.append("Attrs: [summary]")
 
-        if state["domains"]:
-            status_parts.append(f"Domains: {','.join(state['domains'])}")
+        if active_panel["domains"]:
+            status_parts.append(f"Domains: {','.join(active_panel['domains'])}")
 
-        if state["configurations"]:
-            status_parts.append(f"Configs: {','.join(state['configurations'])}")
+        if active_panel["configurations"]:
+            status_parts.append(f"Configs: {','.join(active_panel['configurations'])}")
 
-        if state["highlight"]:
-            status_parts.append(f"Highlight: {state['highlight']}")
+        if active_panel["highlight"]:
+            status_parts.append(f"Highlight: {active_panel['highlight']}")
 
-        if state["errors"]:
+        if active_panel["errors"]:
             status_parts.append("[errors]")
 
-        if state["summary"] and state["attributes"]:
+        if active_panel["summary"] and active_panel["attributes"]:
             status_parts.append("[summary]")
 
         status_text = " | ".join(status_parts)
@@ -199,7 +244,7 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
                     else curses.A_REVERSE
                 )
         else:
-            prompt_line = " Press '/' to run a command, 'q' to quit, '?' / 'help' for help"
+            prompt_line = " Press '/' to run a command, '1'-'9' to switch panels, 'q' to quit, '?' for help"
             prompt_attr = curses.A_DIM if hasattr(curses, "A_DIM") else curses.A_NORMAL
 
         prompt_line = prompt_line.ljust(width - 1)[:width - 1]
@@ -210,22 +255,18 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
             pass
 
         # Adjust and clamp scroll position
+        scroll_y = active_panel["scroll_y"]
+        scroll_x = active_panel["scroll_x"]
         max_scroll_y = max(0, pad_lines - viewport_height)
         max_scroll_x = max(0, pad_cols - viewport_width)
         scroll_y = min(scroll_y, max_scroll_y)
         scroll_x = min(scroll_x, max_scroll_x)
-
-        # Clear viewport rows of stdscr to prevent leftover text from shorter layouts
-        for y in range(1, height - 1):
-            try:
-                stdscr.move(y, 0)
-                stdscr.clrtoeol()
-            except curses.error:
-                pass
+        active_panel["scroll_y"] = scroll_y
+        active_panel["scroll_x"] = scroll_x
 
         stdscr.refresh()
         try:
-            pad.refresh(scroll_y, scroll_x, 1, 0, height - 2, width - 1)
+            pad.refresh(scroll_y, scroll_x, 1, 0, height - 3, width - 1)
         except curses.error:
             pass
 
@@ -234,35 +275,44 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
         is_error = False
 
         # Return to table mode if pressing any navigation key from help/attributes views
-        if state["view_mode"] != "table" and ch not in (
+        if active_panel["view_mode"] != "table" and ch not in (
             ord("/"),
             ord("\\"),
             curses.KEY_RESIZE,
-        ):
-            state["view_mode"] = "table"
-            last_rendered_text = ""
+        ) and not (ord("1") <= ch <= ord("9")):
+            active_panel["view_mode"] = "table"
+            active_panel["last_rendered_text"] = ""
             continue
 
         # Handle viewport controls
         if ch in (curses.KEY_UP, ord("k")):
-            scroll_y = max(0, scroll_y - 1)
+            active_panel["scroll_y"] = max(0, scroll_y - 1)
         elif ch in (curses.KEY_DOWN, ord("j")):
-            scroll_y = min(max_scroll_y, scroll_y + 1)
+            active_panel["scroll_y"] = min(max_scroll_y, scroll_y + 1)
         elif ch in (curses.KEY_LEFT, ord("h")):
-            scroll_x = max(0, scroll_x - 4)
+            active_panel["scroll_x"] = max(0, scroll_x - 4)
         elif ch in (curses.KEY_RIGHT, ord("l")):
-            scroll_x = min(max_scroll_x, scroll_x + 4)
+            active_panel["scroll_x"] = min(max_scroll_x, scroll_x + 4)
         elif ch in (curses.KEY_PPAGE, 2, ord("b")):  # Ctrl+B / PageUp
-            scroll_y = max(0, scroll_y - viewport_height)
+            active_panel["scroll_y"] = max(0, scroll_y - viewport_height)
         elif ch in (curses.KEY_NPAGE, 6, ord("f")):  # Ctrl+F / PageDown
-            scroll_y = min(max_scroll_y, scroll_y + viewport_height)
+            active_panel["scroll_y"] = min(max_scroll_y, scroll_y + viewport_height)
         elif ch in (curses.KEY_HOME, ord("g")):
-            scroll_y = 0
+            active_panel["scroll_y"] = 0
         elif ch in (curses.KEY_END, ord("G")):
-            scroll_y = max_scroll_y
+            active_panel["scroll_y"] = max_scroll_y
         elif ch == ord("q"):
             break
+        elif ord("1") <= ch <= ord("9"):
+            panel_num = ch - ord("0")
+            idx = panel_num - 1
+            if idx < len(state["panels"]):
+                state["active_panel_idx"] = idx
+                status_msg = f"Switched to panel {panel_num}: {state['panels'][idx]['name']}"
+                is_error = False
+                active_panel["last_rendered_text"] = ""
         elif ch in (ord("/"), ord("\\")):
+            panel_ids = [str(i + 1) for i in range(len(state["panels"]))]
             cmd = get_command_input(
                 stdscr,
                 height - 1,
@@ -270,17 +320,21 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
                 domains=domains_list,
                 attributes=attributes_list,
                 configurations=configurations_list,
+                panel_ids=panel_ids,
             )
             if cmd is not None:
-                success, err = parse_tui_command(cmd, state, report)
+                success, err = parse_tui_command(cmd, state, report, args=args)
                 if not success:
                     status_msg = err
                     is_error = True
                 elif "success_message" in state:
                     status_msg = state.pop("success_message")
                     is_error = False
+                elif "success_message" in active_panel:
+                    status_msg = active_panel.pop("success_message")
+                    is_error = False
         elif ch == curses.KEY_RESIZE:
-            last_rendered_text = ""
+            active_panel["last_rendered_text"] = ""
 
     return 0
 
@@ -292,6 +346,7 @@ def get_command_input(
     domains: list[str],
     attributes: list[str],
     configurations: list[str],
+    panel_ids: list[str] = None,
 ) -> str | None:
     try:
         curses.curs_set(1)  # Show cursor
@@ -300,6 +355,7 @@ def get_command_input(
     input_str: list[str] = []
     cursor_pos = 0
     cycle_state: dict = {}
+    p_ids = panel_ids or []
 
     while True:
         stdscr.move(prompt_row, 0)
@@ -368,6 +424,10 @@ def get_command_input(
                     "tex",
                     "quit",
                     "merge",
+                    "new",
+                    "kill",
+                    "panel",
+                    "rename",
                 ]
             else:
                 # Autocomplete arguments based on the command context
@@ -388,6 +448,8 @@ def get_command_input(
                         candidates = domains
                     else:
                         continue
+                elif cmd_name in ("panel", "kill"):
+                    candidates = p_ids
                 else:
                     continue
 
@@ -431,13 +493,20 @@ def get_command_input(
     return "".join(input_str)
 
 
-def parse_tui_command(cmd_str: str, state: dict, report: LabReport) -> tuple[bool, str | None]:
+def parse_tui_command(
+    cmd_str: str,
+    state: dict,
+    report: LabReport,
+    args: argparse.Namespace = None,
+) -> tuple[bool, str | None]:
     cmd_str = cmd_str.strip()
     if not cmd_str:
         return True, None
 
     parts = cmd_str.split()
     cmd_name = parts[0].lower()
+
+    is_multi_panel = "panels" in state
 
     # Define explicitly allowed TUI commands (no single-letter options)
     allowed_commands = {
@@ -451,11 +520,97 @@ def parse_tui_command(cmd_str: str, state: dict, report: LabReport) -> tuple[boo
         "help", "?",
         "tex",
         "quit",
-        "merge"
+        "merge",
+        "new",
+        "kill",
+        "panel",
+        "rename",
     }
 
-    if cmd_name not in allowed_commands:
+    if cmd_name not in allowed_commands and not cmd_name.isdigit():
         return False, f"Unknown command: /{cmd_name}"
+
+    if is_multi_panel:
+        if cmd_name.isdigit():
+            idx = int(cmd_name) - 1
+            if 0 <= idx < len(state["panels"]):
+                state["active_panel_idx"] = idx
+                state["success_message"] = f"Switched to panel {idx + 1}: {state['panels'][idx]['name']}"
+                return True, None
+            return False, f"Panel index out of range: {cmd_name}"
+
+        if cmd_name == "panel":
+            if len(parts) < 2 or not parts[1].isdigit():
+                return False, "Usage: /panel <number>"
+            idx = int(parts[1]) - 1
+            if 0 <= idx < len(state["panels"]):
+                state["active_panel_idx"] = idx
+                state["success_message"] = f"Switched to panel {idx + 1}: {state['panels'][idx]['name']}"
+                return True, None
+            return False, f"Panel index out of range: {parts[1]}"
+
+        if cmd_name == "new":
+            if len(parts) >= 2:
+                name = " ".join(parts[1:])
+            else:
+                name = f"panel {len(state['panels']) + 1}"
+            from .cli import _split_values
+            new_panel = {
+                "name": name,
+                "attributes": _split_values(args.attribute) if args else [],
+                "domains": _split_values(args.domain) if args else [],
+                "configurations": _split_values(args.configuration) if args else [],
+                "errors": args.errors if args else False,
+                "summary": args.summary if args else True,
+                "highlight": args.highlight if args else None,
+                "view_mode": "table",
+                "merges": [],
+                "scroll_y": 0,
+                "scroll_x": 0,
+                "last_rendered_text": "",
+            }
+            state["panels"].append(new_panel)
+            state["active_panel_idx"] = len(state["panels"]) - 1
+            state["success_message"] = f"Created and switched to panel {len(state['panels'])}: {name}"
+            return True, None
+
+        if cmd_name == "kill":
+            if len(parts) < 2 or not parts[1].isdigit():
+                return False, "Usage: /kill <number>"
+            idx = int(parts[1]) - 1
+            if not (0 <= idx < len(state["panels"])):
+                return False, f"Panel index out of range: {parts[1]}"
+            if len(state["panels"]) <= 1:
+                return False, "Cannot close the last remaining panel"
+            removed_panel = state["panels"].pop(idx)
+            if state["active_panel_idx"] >= len(state["panels"]):
+                state["active_panel_idx"] = len(state["panels"]) - 1
+            elif state["active_panel_idx"] > idx:
+                state["active_panel_idx"] -= 1
+            state["success_message"] = f"Closed panel {idx + 1}: {removed_panel['name']}"
+            return True, None
+
+        if cmd_name == "rename":
+            if len(parts) < 2:
+                return False, "Usage: /rename <new_name>"
+            new_name = " ".join(parts[1:])
+            old_name = state["panels"][state["active_panel_idx"]]["name"]
+            state["panels"][state["active_panel_idx"]]["name"] = new_name
+            state["success_message"] = f"Renamed panel '{old_name}' to '{new_name}'"
+            return True, None
+
+    # Handle quit globally (works for both multi-panel and flat state)
+    if cmd_name == "quit":
+        state["quit"] = True
+        return True, None
+
+    if cmd_name == "rename":
+        return False, "Rename is only supported in multi-panel mode"
+
+    # Rebind state to active_panel for remaining options if in multi-panel mode
+    if is_multi_panel:
+        active_panel = state["panels"][state["active_panel_idx"]]
+        state = active_panel
 
     # Normalize plural aliases to singular
     if cmd_name == "attributes":
@@ -691,6 +846,7 @@ def _generate_help_text() -> str:
         "  PageDown / f       Scroll table down by 1 screen\n"
         "  Home / g           Scroll to the top of the table\n"
         "  End / G            Scroll to the bottom of the table\n"
+        "  1 - 9              Switch directly to panels 1 - 9\n"
         "  /                  Open the command prompt\n"
         "  q                  Quit the TUI\n\n"
         "\033[1mCommands (Type / to enter):\033[0m\n"
@@ -706,6 +862,10 @@ def _generate_help_text() -> str:
         "  highlight off/none Clear extrema highlighting\n"
         "  merge STRING D1 D2 Merge domains D1, D2... into STRING and combine results\n"
         "  merge clear/none   Clear all active merges\n"
+        "  new [NAME]         Create a new panel with optional name\n"
+        "  kill <N>           Close the panel with index N\n"
+        "  panel <N>          Switch to panel N (or type /[N] directly)\n"
+        "  rename <NAME>      Rename the active panel\n"
         "  list               List available attributes, configurations, and domains\n"
         "  help / ?           Show this help information\n"
         "  tex <filename>     Export current view as LaTeX tables\n"

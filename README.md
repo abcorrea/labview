@@ -21,8 +21,13 @@ results over SSH, in CI logs, or without opening a browser.
 - Highlight row-wise numeric minima or maxima.
 - **Interactive TUI Mode** (via `--tui` / `-t`):
   - Viewport navigation (Arrow keys, Page Up/Down, Vim navigation keys).
+  - **Multiple Panels / Tabs (tmux-like)**:
+    - Manage independent panel views, each maintaining its own view mode, filters, merges, and scroll positions.
+    - Switch active panels using numeric hotkeys `1`–`9` directly, or via `/panel N` / `/N` commands.
+    - Create new panels with `/new [NAME]` and delete panels with `/kill N`.
+    - Active panel tab is highlighted in black text on a green background, and inactive tabs are highlighted on a blue background.
   - Forward-slash command entry (`/`) to dynamically update the view.
-  - Cycle-based tab autocompletion for commands, attributes, configurations, and domains.
+  - Cycle-based tab autocompletion for commands, attributes, configurations, domains, and active panel IDs.
   - Configuration filtering by number (e.g. `/configuration 1` translates to the first configuration name).
   - Dynamic domain merging (`/merge STRING domain1 domain2 ...`) with correct aggregation (weighted sum, means, mins, maxes) placed immediately above the table summary row.
   - LaTeX export of the active view (`/tex filename.tex`).
@@ -144,10 +149,15 @@ labview report.html --tui
 - **Up/Down / Vim `k`/`j`**: Scroll table viewport by one line.
 - **Page Up/Down / Vim `Ctrl-u`/`Ctrl-d`**: Scroll by full screen.
 - **Home/End / Vim `g`/`G`**: Scroll to top/bottom.
+- **`1`–`9`**: Switch directly to panels 1 to 9.
 - **`/`**: Open command prompt to input interactive options.
 - **`q`**: Return to table view from help/list views, or exit when in the table view.
 
 ### Curses Slash Commands (Press `/` to enter)
+- `/new [NAME]`: Spawn a new panel (defaults to `panel <index>` if name is omitted).
+- `/kill <N>`: Close panel `<N>` (cannot close the last panel).
+- `/panel <N>` or `/<N>`: Switch focus to panel `<N>`.
+- `/rename <NAME>`: Rename the active panel.
 - `/attribute [attr1,attr2,...]` or `/attribute clear`: Show specified attribute tables, or clear them.
 - `/domain [domain1,domain2,...]` or `/domain none`: Limit to or show domain details.
 - `/configuration [config1,config2,...]` or `/configuration none`: Filter configuration columns by name or number (e.g. `1,2`).
