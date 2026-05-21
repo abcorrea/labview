@@ -19,11 +19,20 @@ def main(argv: list[str] | None = None) -> int:
     if not report_path.is_file():
         parser.error(f"report does not exist: {report_path}")
 
+    report = LabReport.from_file(report_path)
+
+    if args.tui:
+        try:
+            from .tui import run_tui
+            return run_tui(report, args)
+        except ImportError as err:
+            print(f"Error: Could not start TUI mode. {err}", file=sys.stderr)
+            print("TUI mode requires 'curses' which is built into Unix/Linux, but requires 'windows-curses' on Windows.", file=sys.stderr)
+            return 1
+
     attributes = _split_values(args.attribute)
     domains = _split_values(args.domain)
     configurations = _split_values(args.configuration)
-
-    report = LabReport.from_file(report_path)
 
     if args.list_attributes:
         print(_format_attributes(report))
@@ -62,6 +71,34 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("report", help="path to a Lab HTML report")
     parser.add_argument(
+        "-t",
+        "--tui",
+        action="store_true",
+        help="open the interactive terminal user interface (TUI)",
+    )
+    _add_shared_arguments(parser)
+    parser.add_argument(
+        "-p",
+        "--paging",
+        action="store_true",
+        help="page the output with the system pager",
+    )
+    parser.add_argument(
+        "--color",
+        choices=["auto", "always", "never"],
+        default="auto",
+        help="colorize output: auto, always, or never",
+    )
+    parser.add_argument(
+        "--list-attributes",
+        action="store_true",
+        help="list available attribute tables and exit",
+    )
+    return parser
+
+
+def _add_shared_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
         "-a",
         "--attribute",
         nargs="+",
@@ -94,28 +131,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="print the summary table at the top, even when attributes are selected",
     )
     parser.add_argument(
-        "-p",
-        "--paging",
-        action="store_true",
-        help="page the output with the system pager",
-    )
-    parser.add_argument(
-        "--color",
-        choices=["auto", "always", "never"],
-        default="auto",
-        help="colorize output: auto, always, or never",
-    )
-    parser.add_argument(
         "--highlight",
         choices=["max", "min"],
         help="highlight row-wise maximum or minimum numeric values",
     )
-    parser.add_argument(
-        "--list-attributes",
-        action="store_true",
-        help="list available attribute tables and exit",
-    )
+
+
+def build_tui_command_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="", add_help=False, exit_on_error=False)
+    _add_shared_arguments(parser)
     return parser
+
 
 
 def _select_tables(
