@@ -393,6 +393,177 @@ class TuiAutocompleteTests(unittest.TestCase):
                     result = _tui_main(win, report, args)
                     self.assertEqual(result, 0)
 
+    def test_autocomplete_merge_domains(self) -> None:
+        domains = ["blocksworld", "gripper"]
+        
+        # Complete command name
+        win = MockWindow(["m", 9, 10])
+        res = get_command_input(win, 0, 80, domains, [], [])
+        self.assertEqual(res, "merge")
+
+        # Complete first domain after group name
+        win = MockWindow(["m", "e", "r", "g", "e", " ", "g", "r", "o", "u", "p", " ", "b", 9, 10])
+        res = get_command_input(win, 0, 80, domains, [], [])
+        self.assertEqual(res, "merge group blocksworld")
+
+        # Cycle domains
+        win = MockWindow(["m", "e", "r", "g", "e", " ", "g", "r", "o", "u", "p", " ", 9, 9, 10])
+        res = get_command_input(win, 0, 80, domains, [], [])
+        self.assertEqual(res, "merge group gripper")
+
+        # Complete second domain after first domain is typed
+        win = MockWindow(["m", "e", "r", "g", "e", " ", "g", "r", "o", "u", "p", " ", "blocksworld", " ", "g", 9, 10])
+        res = get_command_input(win, 0, 80, domains, [], [])
+        self.assertEqual(res, "merge group blocksworld gripper")
+
+
+class TuiMergeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.report = LabReport.from_file(FIXTURE)
+
+    def test_apply_merges_sum(self) -> None:
+        from labview.tui import _apply_merges_to_table
+        from labview.parser import Table
+        table = Table(
+            section_id="coverage",
+            rows=(
+                ("coverage", "algo-a", "algo-b"),
+                ("blocksworld (2)", "1", "2"),
+                ("gripper (3)", "3", "4"),
+                ("Sum (5)", "4", "6")
+            )
+        )
+        merges = [{"name": "merged", "domains": ["blocksworld", "gripper"]}]
+        res = _apply_merges_to_table(table, merges)
+        expected_rows = (
+            ("coverage", "algo-a", "algo-b"),
+            ("merged (5)", "4", "6"),
+            ("Sum (5)", "4", "6")
+        )
+        self.assertEqual(res.rows, expected_rows)
+
+    def test_apply_merges_mean(self) -> None:
+        from labview.tui import _apply_merges_to_table
+        from labview.parser import Table
+        table = Table(
+            section_id="search_time",
+            rows=(
+                ("search_time", "algo-a", "algo-b"),
+                ("blocksworld (2)", "2.0", "4.0"),
+                ("gripper (3)", "12.0", "14.0"),
+                ("Arithmetic mean (5)", "8.0", "10.0")
+            )
+        )
+        merges = [{"name": "merged", "domains": ["blocksworld", "gripper"]}]
+        res = _apply_merges_to_table(table, merges)
+        expected_rows = (
+            ("search_time", "algo-a", "algo-b"),
+            ("merged (5)", "8", "10"),
+            ("Arithmetic mean (5)", "8.0", "10.0")
+        )
+        self.assertEqual(res.rows, expected_rows)
+
+    def test_apply_merges_geomean(self) -> None:
+        from labview.tui import _apply_merges_to_table
+        from labview.parser import Table
+        table = Table(
+            section_id="search_time",
+            rows=(
+                ("search_time", "algo-a"),
+                ("blocksworld (2)", "2.0"),
+                ("gripper (3)", "8.0"),
+                ("Geometric mean (5)", "4.5948")
+            )
+        )
+        merges = [{"name": "merged", "domains": ["blocksworld", "gripper"]}]
+        res = _apply_merges_to_table(table, merges)
+        expected_rows = (
+            ("search_time", "algo-a"),
+            ("merged (5)", "4.5948"),
+            ("Geometric mean (5)", "4.5948")
+        )
+        self.assertEqual(res.rows, expected_rows)
+
+    def test_apply_merges_min_max(self) -> None:
+        from labview.tui import _apply_merges_to_table
+        from labview.parser import Table
+        table_min = Table(
+            section_id="search_time",
+            rows=(
+                ("search_time", "algo-a"),
+                ("blocksworld (2)", "10"),
+                ("gripper (3)", "5"),
+                ("Min (5)", "5")
+            )
+        )
+        merges = [{"name": "merged", "domains": ["blocksworld", "gripper"]}]
+        res_min = _apply_merges_to_table(table_min, merges)
+        self.assertEqual(res_min.rows[1][1], "5")
+
+        table_max = Table(
+            section_id="search_time",
+            rows=(
+                ("search_time", "algo-a"),
+                ("blocksworld (2)", "10"),
+                ("gripper (3)", "5"),
+                ("Max (5)", "10")
+            )
+        )
+        res_max = _apply_merges_to_table(table_max, merges)
+        self.assertEqual(res_max.rows[1][1], "10")
+
+    def test_apply_merges_ordering(self) -> None:
+        from labview.tui import _apply_merges_to_table
+        from labview.parser import Table
+        table = Table(
+            section_id="coverage",
+            rows=(
+                ("coverage", "algo-a"),
+                ("blocksworld (2)", "1"),
+                ("gripper (3)", "2"),
+                ("logistics (4)", "3"),
+                ("Sum (9)", "6")
+            )
+        )
+        merges = [{"name": "merged_bw_log", "domains": ["blocksworld", "logistics"]}]
+        res = _apply_merges_to_table(table, merges)
+        expected_rows = (
+            ("coverage", "algo-a"),
+            ("gripper (3)", "2"),
+            ("merged_bw_log (6)", "4"),
+            ("Sum (9)", "6")
+        )
+        self.assertEqual(res.rows, expected_rows)
+
+    def test_parse_tui_command_merge(self) -> None:
+        state = {
+            "merges": [],
+            "view_mode": "table",
+            "quit": False,
+        }
+        success, err = parse_tui_command("merge mygroup blocksworld gripper", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(state["merges"], [{"name": "mygroup", "domains": ["blocksworld", "gripper"]}])
+
+        # Overwriting/replacing merge with the same name
+        success, err = parse_tui_command("merge mygroup gripper logistics", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(state["merges"], [{"name": "mygroup", "domains": ["gripper", "logistics"]}])
+
+        # Invalid usage (too few args)
+        success, err = parse_tui_command("merge mygroup", state, self.report)
+        self.assertFalse(success)
+        self.assertEqual(err, "Usage: /merge STRING domain1 domain2 ...")
+
+        # Clear merges
+        success, err = parse_tui_command("merge clear", state, self.report)
+        self.assertTrue(success)
+        self.assertIsNone(err)
+        self.assertEqual(state["merges"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

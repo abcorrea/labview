@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING
 
 from .render import render_sections
 
-if TYPE_CHECKING:
-    from .parser import LabReport, Table
+from .parser import LabReport, Table
 
 
 ANSI_RE = re.compile(r'\x1b\[([0-9;]*)m')
@@ -60,6 +59,7 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
         "highlight": args.highlight,
         "view_mode": "table",  # "table", "help", "list"
         "quit": False,
+        "merges": [],
     }
 
     # Extract domains, attributes, and configurations lists for tab completion
@@ -113,6 +113,8 @@ def _tui_main(stdscr: curses.window, report: LabReport, args: argparse.Namespace
                 )
                 if state["configurations"]:
                     tables = _filter_configurations(tables, state["configurations"])
+                if state.get("merges"):
+                    tables = [_apply_merges_to_table(t, state["merges"]) for t in tables]
                 content_text = render_sections(
                     tables,
                     color=True,
@@ -365,6 +367,7 @@ def get_command_input(
                     "help",
                     "tex",
                     "quit",
+                    "merge",
                 ]
             else:
                 # Autocomplete arguments based on the command context
@@ -380,6 +383,11 @@ def get_command_input(
                     candidates = configurations
                 elif cmd_name in ("highlight", "--highlight"):
                     candidates = ["max", "min", "off", "none", "clear"]
+                elif cmd_name == "merge":
+                    if len(parts) > 2 or (len(parts) == 2 and input_text.endswith(" ")):
+                        candidates = domains
+                    else:
+                        continue
                 else:
                     continue
 
@@ -442,7 +450,8 @@ def parse_tui_command(cmd_str: str, state: dict, report: LabReport) -> tuple[boo
         "list", "list-attributes",
         "help", "?",
         "tex",
-        "quit"
+        "quit",
+        "merge"
     }
 
     if cmd_name not in allowed_commands:
@@ -490,6 +499,21 @@ def parse_tui_command(cmd_str: str, state: dict, report: LabReport) -> tuple[boo
     elif cmd_name in ("list", "list-attributes"):
         state["view_mode"] = "list"
         return True, None
+    elif cmd_name == "merge":
+        if len(parts) == 2 and parts[1].lower() in ("none", "clear"):
+            state["merges"] = []
+            state["success_message"] = "Cleared all merges"
+            state["view_mode"] = "table"
+            return True, None
+        if len(parts) < 3:
+            return False, "Usage: /merge STRING domain1 domain2 ..."
+        name = parts[1]
+        domains = parts[2:]
+        state["merges"] = [m for m in state["merges"] if m["name"].lower() != name.lower()]
+        state["merges"].append({"name": name, "domains": domains})
+        state["success_message"] = f"Merged domains into '{name}'"
+        state["view_mode"] = "table"
+        return True, None
     elif cmd_name == "tex":
         if len(parts) < 2:
             return False, "Usage: /tex <filename>"
@@ -508,6 +532,8 @@ def parse_tui_command(cmd_str: str, state: dict, report: LabReport) -> tuple[boo
             )
             if state["configurations"]:
                 tables = _filter_configurations(tables, state["configurations"])
+            if state.get("merges"):
+                tables = [_apply_merges_to_table(t, state["merges"]) for t in tables]
 
             latex_content = export_to_latex(tables, highlight=state["highlight"])
 
@@ -678,6 +704,8 @@ def _generate_help_text() -> str:
         "  summary            Toggle summary table display\n"
         "  highlight [max|min]Highlight row-wise numeric maxima/minima\n"
         "  highlight off/none Clear extrema highlighting\n"
+        "  merge STRING D1 D2 Merge domains D1, D2... into STRING and combine results\n"
+        "  merge clear/none   Clear all active merges\n"
         "  list               List available attributes, configurations, and domains\n"
         "  help / ?           Show this help information\n"
         "  tex <filename>     Export current view as LaTeX tables\n"
@@ -870,3 +898,130 @@ def get_report_configurations(report: LabReport) -> list[str]:
                 if cell:
                     configs.add(cell)
     return sorted(list(configs))
+
+
+def _apply_merges_to_table(table: Table, merges: list[dict]) -> Table:
+    if len(table.rows) < 2 or table.section_id in ("unexplained-errors", "info", "summary") or "-" in table.section_id:
+        return table
+
+    current_rows = list(table.rows)
+    for merge in merges:
+        name = merge["name"]
+        domains_to_merge = {d.strip().lower() for d in merge["domains"]}
+        
+        has_summary = len(current_rows) > 2
+        domain_rows_limit = len(current_rows) - 1 if has_summary else len(current_rows)
+        
+        matching_indices = []
+        merged_rows_data = []
+        
+        def get_base_domain(label: str) -> str:
+            return label.split(" (")[0].strip()
+
+        for idx in range(1, domain_rows_limit):
+            row_label = current_rows[idx][0]
+            base_domain = get_base_domain(row_label).lower()
+            if base_domain in domains_to_merge:
+                matching_indices.append(idx)
+                
+                n_j = 1
+                if " (" in row_label and row_label.endswith(")"):
+                    try:
+                        parts = row_label.split(" (")
+                        n_str = parts[-1][:-1]
+                        n_j = int(n_str)
+                    except ValueError:
+                        pass
+                
+                merged_rows_data.append((n_j, list(current_rows[idx][1:])))
+                
+        if not matching_indices:
+            continue
+            
+        operation = "sum"
+        if has_summary:
+            summary_label = current_rows[-1][0].lower()
+            if "geometric" in summary_label or "geomean" in summary_label:
+                operation = "geomean"
+            elif "sum" in summary_label:
+                operation = "sum"
+            elif "mean" in summary_label or "average" in summary_label:
+                operation = "mean"
+            elif "min" in summary_label:
+                operation = "min"
+            elif "max" in summary_label:
+                operation = "max"
+
+        combined_vals = []
+        num_cols = len(current_rows[0])
+        for col_idx in range(1, num_cols):
+            valid_pairs = []
+            for n_j, row_vals in merged_rows_data:
+                if col_idx - 1 < len(row_vals):
+                    val_str = row_vals[col_idx - 1]
+                    try:
+                        val_float = float(val_str)
+                        valid_pairs.append((n_j, val_float))
+                    except ValueError:
+                        pass
+            
+            if not valid_pairs:
+                raw_vals = [r[col_idx - 1] for _, r in merged_rows_data if col_idx - 1 < len(r)]
+                non_empty = [rv for rv in raw_vals if rv and rv != "?"]
+                combined_vals.append(non_empty[0] if non_empty else "?")
+                continue
+                
+            if operation == "sum":
+                ans = sum(val for _, val in valid_pairs)
+            elif operation == "mean":
+                total_n = sum(n for n, _ in valid_pairs)
+                if total_n > 0:
+                    ans = sum(val * n for n, val in valid_pairs) / total_n
+                else:
+                    ans = sum(val for _, val in valid_pairs) / len(valid_pairs)
+            elif operation == "geomean":
+                import math
+                total_n = sum(n for n, _ in valid_pairs)
+                if total_n > 0:
+                    log_sum = 0.0
+                    has_zero_or_neg = False
+                    for n, val in valid_pairs:
+                        if val <= 0:
+                            has_zero_or_neg = True
+                            break
+                        log_sum += n * math.log(val)
+                    if has_zero_or_neg:
+                        ans = 0.0
+                    else:
+                        ans = math.exp(log_sum / total_n)
+                else:
+                    ans = 0.0
+            elif operation == "min":
+                ans = min(val for _, val in valid_pairs)
+            elif operation == "max":
+                ans = max(val for _, val in valid_pairs)
+            else:
+                ans = sum(val for _, val in valid_pairs)
+                
+            if ans.is_integer():
+                combined_vals.append(str(int(ans)))
+            else:
+                formatted = f"{ans:.4f}".rstrip("0").rstrip(".")
+                combined_vals.append(formatted)
+                
+        total_problems = sum(n_j for n_j, _ in merged_rows_data)
+        new_row_label = f"{name} ({total_problems})" if total_problems > 0 else name
+        new_row = tuple([new_row_label] + combined_vals)
+
+        remaining_rows = []
+        for idx, row in enumerate(current_rows):
+            if idx not in matching_indices:
+                remaining_rows.append(row)
+
+        if has_summary and len(remaining_rows) > 1:
+            next_rows = remaining_rows[:-1] + [new_row] + [remaining_rows[-1]]
+        else:
+            next_rows = remaining_rows + [new_row]
+        current_rows = next_rows
+
+    return Table(table.section_id, tuple(current_rows))
